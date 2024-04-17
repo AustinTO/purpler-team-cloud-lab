@@ -1,9 +1,8 @@
-
 resource "aws_security_group" "adlab-ingress-all" {
-  name = "adlab-allow-all"
+  name   = "adlab-allow-all"
   vpc_id = var.vpc_id
 
-  #Kerberos Key Distribution Center
+  # Kerberos (TCP 88)
   ingress {
     from_port   = 88
     to_port     = 88
@@ -11,7 +10,7 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
 
-  #Remote Procedure Call
+  # RPC (TCP 135)
   ingress {
     from_port   = 135
     to_port     = 135
@@ -19,7 +18,7 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
   
-  #NetBIOS Session Service
+  # NetBIOS (TCP 139)
   ingress {
     from_port   = 139
     to_port     = 139
@@ -27,7 +26,7 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
   
-  #LDAP
+  # LDAP (TCP 389)
   ingress {
     from_port   = 389
     to_port     = 389
@@ -35,7 +34,7 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
   
-  #SMB & Net Logon
+  # SMB & Net Logon (TCP 445)
   ingress {
     from_port   = 445
     to_port     = 445
@@ -43,23 +42,23 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
   
-  #WinRM/Powershell Remoting Access
+  # WinRM (HTTPS on port 5986) – external access allowed only from the whitelisted IP
   ingress {
-    from_port   = 5985
+    from_port   = 5986
     to_port     = 5986
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
 
-  #Remote Desktop Access
+  # Remote Desktop (TCP 3389) – external access allowed only from the whitelisted IP
   ingress {
     from_port   = 3389
     to_port     = 3389
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
 
-  #Randomly Allocated Ports (Could be disabled)
+  # Random high ports (internal)
   ingress {
     from_port   = 49152
     to_port     = 65535
@@ -67,91 +66,83 @@ resource "aws_security_group" "adlab-ingress-all" {
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
   
-  #DNS
+  # DNS (UDP 53) – internal
   ingress {
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-  
-  #LDAP, DC Locator and also Net Logon
-  ingress {
-    from_port   = 389
-    to_port     = 389
-    protocol    = "udp"
-    cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
-  }
 
-  #Ping ICMP Packets
+  # ICMP (Ping) – external
   ingress {
     from_port   = 8
     to_port     = 0
     protocol    = "icmp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
 
-  # Terraform removes the default rule
   egress {
-   from_port = 0
-   to_port = 0
-   protocol = "-1"
-   cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
 resource "aws_security_group" "blueteam-ingress-all" {
-  name = "allow-all-sg"
+  name   = "allow-all-sg"
   vpc_id = var.vpc_id
-  #SSH
-  ingress {
-      from_port = 22
-      to_port = 22
-      protocol = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-  }
 
-  #helk-ksql-server
+  # SSH
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.external_whitelist_ip]
+  }
+  
+  # helk-ksql-server
   ingress {
     from_port   = 8088
     to_port     = 8088
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
 
-  #helk-kafka
+  # helk-kafka (internal)
   ingress {
     from_port   = 9092
     to_port     = 9093
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-
-  #helk-kafka-broker
+  
+  # helk-kafka-broker (internal)
   ingress {
-    from_port   = 5985
+    from_port   = 5986
     to_port     = 5986
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-
-  #helk-nginx
+  
+  # helk-nginx
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
-
-  #helk-nginx-ssl
+  
+  # helk-nginx-ssl
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
-
-  #helk-logstash
+  
+  # helk-logstash (internal)
   ingress {
     from_port   = 3515
     to_port     = 3515
@@ -176,276 +167,250 @@ resource "aws_security_group" "blueteam-ingress-all" {
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-
-  #helk-kibana
+  
+  # helk-kibana
   ingress {
     from_port   = 5601
     to_port     = 5601
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-
-  #helk-elasticsearch
+  
+  # helk-elasticsearch
   ingress {
     from_port   = 9200
     to_port     = 9200
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
   ingress {
     from_port   = 9300
     to_port     = 9300
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.external_whitelist_ip]
   }
-
-  #RDP Protocol
+  
+  # RDP (internal)
   ingress {
     from_port   = 3389
     to_port     = 3389
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-
-
-  # Terraform removes the default rule
+  
   egress {
-   from_port = 0
-   to_port = 0
-   protocol = "-1"
-   cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
 resource "aws_security_group" "redteam-ingress-all" {
-  name = "caldera-allow-all-sg"
+  name   = "caldera-allow-all-sg"
   vpc_id = var.vpc_id
+  
   ingress {
-      cidr_blocks = [
-        "0.0.0.0/0"
-      ]
-      from_port = 0
-      to_port = 8888
-      protocol = "tcp"
+    cidr_blocks = [var.external_whitelist_ip]
+    from_port   = 0
+    to_port     = 8888
+    protocol    = "tcp"
   }
-  # Terraform removes the default rule
+  
   egress {
-   from_port = 0
-   to_port = 0
-   protocol = "-1"
-   cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
-#Microsoft Windows Server 2019 Base
+
 data "aws_ami" "win2019" {
   most_recent = true
-  owners = ["amazon"]
+  owners      = ["amazon"]
 
   filter {
-    name = "name"
+    name   = "name"
     values = ["Windows_Server-2019-English-Full-Base-*"]
   }
 }
 
 data "aws_ami" "amazonlinux" {
   most_recent = true
-  owners = ["amazon"]
+  owners      = ["amazon"]
 
   filter {
-    name = "name"
+    name   = "name"
     values = ["amzn2-ami-hvm-*-gp2"]
   }
   filter {
-    name = "architecture"
+    name   = "architecture"
     values = ["x86_64"]
   }
   filter {
-    name = "virtualization-type"
+    name   = "virtualization-type"
     values = ["hvm"]
   }
 }
 
-
-
 resource "aws_instance" "adlab-dc" {
-  ami           = data.aws_ami.win2019.id
-  instance_type = "t2.micro"
-  key_name = var.key_name
-  security_groups = [aws_security_group.adlab-ingress-all.id]
-  private_ip = "${var.subnet_cidr_prefix}.100"
-  subnet_id = var.subnet_id
-  user_data = <<EOF
-                <powershell>
-                #Install Active Directory
-                Install-WindowsFeature AD-Domain-Services -IncludeManagementTools -ErrorAction Stop -Confirm:$false
+  ami                          = data.aws_ami.win2019.id
+  instance_type                = "t2.micro"
+  key_name                     = var.key_name
+  security_groups              = [aws_security_group.adlab-ingress-all.id]
+  subnet_id                    = var.subnet_id
+  associate_public_ip_address  = true
+  private_ip                   = "172.16.10.100"
+user_data = <<EOF
+<powershell>
+# Disable EC2Launch so it doesn't override settings
+Stop-Service -Name EC2Launch -Force
+Set-Service -Name EC2Launch -StartupType Disabled
 
-                #Enable WinRM
-                Enable-PSRemoting –force
-                Set-Service WinRM -StartMode Automatic
-                Set-LocalUser -Name "Administrator" -Password (ConvertTo-SecureString ${var.default_password} -AsPlainText -Force) -PasswordNeverExpires $true
+# Configure WinRM and set the Administrator password
+Enable-PSRemoting -Force
+Set-Service WinRM -StartMode Automatic
+Set-LocalUser -Name "Administrator" -Password (ConvertTo-SecureString "${var.default_password}" -AsPlainText -Force)
 
-                #Enable WinRM over HTTPS (always needed for untrusted hosts)
-                $Cert = New-SelfSignedCertificate -DnsName "${var.adlab_domain}" -CertStoreLocation Cert:\LocalMachine\My
-                $cmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=`"${var.adlab_domain}`"; CertificateThumbprint=`"" + $Cert.Thumbprint + "`"}'"
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/service/auth @{basic="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/service @{AllowUnencrypted="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/client/auth @{basic="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/client @{AllowUnencrypted="true"}'
-                Invoke-Expression $cmd
-                netsh advfirewall firewall add rule name="Windows Remote Management (HTTPS-In)" dir=in action=allow protocol=TCP localport=5985
-                netsh advfirewall firewall add rule name="Windows Remote Management (HTTPS-In)" dir=in action=allow protocol=TCP localport=5986
-                Set-Item WSMan:\localhost\Client\TrustedHosts -Value * -Force
-                </powershell>
-            EOF
+# Create a self-signed certificate and configure an HTTPS listener
+$Cert = New-SelfSignedCertificate -DnsName "${var.adlab_domain}" -CertStoreLocation Cert:\LocalMachine\My
+$listenerCmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=`"${var.adlab_domain}`"; CertificateThumbprint=`"" + $Cert.Thumbprint + "`"}'"
+Invoke-Expression $listenerCmd
+
+# Set Basic authentication directly using the WSMan provider
+Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
+Set-Item -Path WSMan:\localhost\Client\Auth\Basic -Value $true
+Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $false
+Set-Item -Path WSMan:\localhost\Client\AllowUnencrypted -Value $false
+
+# Open the HTTPS WinRM port in the firewall and set TrustedHosts
+netsh advfirewall firewall add rule name="WinRM_HTTPS" dir=in action=allow protocol=TCP localport=5986
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "*" -Force
+</powershell>
+EOF
+
+
   root_block_device {
     delete_on_termination = true
     volume_size           = 30
   }
-
   tags = {
-    Name = "Domain Controller EC2 Machine - ${var.env}"
-    Workspace = "ADLab"
+    Name        = "Domain Controller EC2 Machine - ${var.env}"
+    Workspace   = "ADLab"
     Environment = var.env
   }
-  
   credit_specification {
     cpu_credits = "standard"
   }
-
   lifecycle {
-    ignore_changes = [
-      security_groups,
-    ]
-  }
-  
-  provisioner "local-exec" {
-    command = "powershell.exe -ExecutionPolicy Unrestricted -Command Unblock-File ${path.module}\\Setup-AD.ps1;${path.module}\\Setup-AD.ps1 ${aws_instance.adlab-dc.public_ip}"
+    ignore_changes = [security_groups]
   }
 }
 
 resource "aws_instance" "adlab-win10" {
-  ami           = data.aws_ami.win2019.id
-  instance_type = "t2.micro"
-  key_name = var.key_name
-  security_groups = [aws_security_group.adlab-ingress-all.id]
-  private_ip = "${var.subnet_cidr_prefix}.110"
-  subnet_id = var.subnet_id
+  ami                          = data.aws_ami.win2019.id
+  instance_type                = "t2.micro"
+  key_name                     = var.key_name
+  security_groups              = [aws_security_group.adlab-ingress-all.id]
+  subnet_id                    = var.subnet_id
+  associate_public_ip_address  = true
+  private_ip                   = "172.16.10.110"
   user_data = <<EOF
-                <powershell>
-                #Install Active Directory
-                Install-WindowsFeature AD-Domain-Services -IncludeManagementTools -ErrorAction Stop -Confirm:$false
+<powershell>
+# Disable EC2Launch so it doesn't override settings
+Stop-Service -Name EC2Launch -Force
+Set-Service -Name EC2Launch -StartupType Disabled
 
-                #Enable WinRM
-                Enable-PSRemoting –force
-                Set-Service WinRM -StartMode Automatic
-                Set-LocalUser -Name "Administrator" -Password (ConvertTo-SecureString ${var.default_password} -AsPlainText -Force) -PasswordNeverExpires $true
+# Configure WinRM and set the Administrator password
+Enable-PSRemoting -Force
+Set-Service WinRM -StartMode Automatic
+Set-LocalUser -Name "Administrator" -Password (ConvertTo-SecureString "${var.default_password}" -AsPlainText -Force)
 
-                #Enable WinRM over HTTPS (always needed for untrusted hosts)
-                $Cert = New-SelfSignedCertificate -DnsName "${var.adlab_domain}" -CertStoreLocation Cert:\LocalMachine\My
-                $cmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=`"${var.adlab_domain}`"; CertificateThumbprint=`"" + $Cert.Thumbprint + "`"}'"
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/service/auth @{basic="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/service @{AllowUnencrypted="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/client/auth @{basic="true"}'
-                Invoke-Expression $cmd
-                $cmd = 'winrm set winrm/config/client @{AllowUnencrypted="true"}'
-                Invoke-Expression $cmd
-                netsh advfirewall firewall add rule name="Windows Remote Management (HTTPS-In)" dir=in action=allow protocol=TCP localport=5985
-                netsh advfirewall firewall add rule name="Windows Remote Management (HTTPS-In)" dir=in action=allow protocol=TCP localport=5986
-                Set-Item WSMan:\localhost\Client\TrustedHosts -Value * -Force
-                </powershell>
-            EOF
+# Create a self-signed certificate and configure an HTTPS listener
+$Cert = New-SelfSignedCertificate -DnsName "${var.adlab_domain}" -CertStoreLocation Cert:\LocalMachine\My
+$listenerCmd = "winrm create winrm/config/Listener?Address=*+Transport=HTTPS '@{Hostname=`"${var.adlab_domain}`"; CertificateThumbprint=`"" + $Cert.Thumbprint + "`"}'"
+Invoke-Expression $listenerCmd
+
+# Set Basic authentication directly using the WSMan provider
+Set-Item -Path WSMan:\localhost\Service\Auth\Basic -Value $true
+Set-Item -Path WSMan:\localhost\Client\Auth\Basic -Value $true
+Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $false
+Set-Item -Path WSMan:\localhost\Client\AllowUnencrypted -Value $false
+
+# Open the HTTPS WinRM port in the firewall and set TrustedHosts
+netsh advfirewall firewall add rule name="WinRM_HTTPS" dir=in action=allow protocol=TCP localport=5986
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "*" -Force
+</powershell>
+EOF
+
+
   root_block_device {
     delete_on_termination = true
     volume_size           = 30
   }
-
   tags = {
-    Name = "Windows 10 Simple EC2 Machine - ${var.env}"
-    Workspace = "ADLab"
+    Name        = "Windows 10 Simple EC2 Machine - ${var.env}"
+    Workspace   = "ADLab"
     Environment = var.env
   }
-  
   credit_specification {
     cpu_credits = "standard"
   }
-
   lifecycle {
-    ignore_changes = [
-      security_groups,
-    ]
-  }
-
-  provisioner "local-exec" {
-    command = "powershell.exe -ExecutionPolicy Unrestricted -Command Unblock-File ${path.module}\\Setup-Workstation.ps1;${path.module}\\Setup-Workstation.ps1 ${aws_instance.adlab-win10.public_ip}"
+    ignore_changes = [security_groups]
   }
   depends_on = [aws_instance.adlab-dc]
 }
 
 resource "aws_instance" "blueteam-helk" {
-  ami           = data.aws_ami.amazonlinux.id
-  instance_type = "t2.large"
-  key_name = var.key_name
-  security_groups = [aws_security_group.blueteam-ingress-all.id]
-  private_ip = "${var.blueteam_subnet_cidr_prefix}.100"
-  subnet_id = var.blueteam_subnet_id
-  user_data = file("${path.module}/blueteam-machine-config.yml")
+  ami                          = data.aws_ami.amazonlinux.id
+  instance_type                = "t2.large"
+  key_name                     = var.key_name
+  security_groups              = [aws_security_group.blueteam-ingress-all.id]
+  subnet_id                    = var.blueteam_subnet_id
+  associate_public_ip_address  = true
+  private_ip                   = "172.16.20.100"
+  user_data                    = file("${path.module}/blueteam-machine-config.yml")
   root_block_device {
     delete_on_termination = true
     volume_size           = 60
   }
-
   tags = {
-    Name = "Blue Team HELK Machine - ${var.env}"
-    Workspace = "ADLab"
+    Name        = "Blue Team HELK Machine - ${var.env}"
+    Workspace   = "ADLab"
     Environment = var.env
   }
-  
   credit_specification {
     cpu_credits = "standard"
   }
-
   lifecycle {
-    ignore_changes = [
-      security_groups,
-    ]
+    ignore_changes = [security_groups]
   }
   depends_on = [aws_instance.adlab-dc]
 }
 
 resource "aws_instance" "redteam-caldera" {
-  ami           = data.aws_ami.amazonlinux.id
-  instance_type = "t2.micro"
-  key_name = var.key_name
-  security_groups = [aws_security_group.redteam-ingress-all.id]
-  private_ip = "${var.attacker_subnet_cidr_prefix}.100"
-  subnet_id = var.attacker_subnet_id
-  user_data = file("${path.module}/redteam-machine-config.yml")
-
+  ami                          = data.aws_ami.amazonlinux.id
+  instance_type                = "t2.micro"
+  key_name                     = var.key_name
+  security_groups              = [aws_security_group.redteam-ingress-all.id]
+  subnet_id                    = var.attacker_subnet_id
+  associate_public_ip_address  = true
+  private_ip                   = "172.16.30.100"
+  user_data                    = file("${path.module}/redteam-machine-config.yml")
   root_block_device {
     delete_on_termination = true
     volume_size           = 20
   }
-
   tags = {
-    Name = "Red Team Caldera Machine - ${var.env}"
-    Workspace = "ADLab"
+    Name        = "Red Team Caldera Machine - ${var.env}"
+    Workspace   = "ADLab"
     Environment = var.env
   }
-  
   credit_specification {
     cpu_credits = "standard"
   }
-
   lifecycle {
-    ignore_changes = [
-      security_groups,
-    ]
+    ignore_changes = [security_groups]
   }
 }

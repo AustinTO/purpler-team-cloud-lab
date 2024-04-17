@@ -1,0 +1,342 @@
+---
+- name: Configure Domain Controller (Replicating PowerShell Script)
+  hosts: domain_controllers
+  gather_facts: yes # Keep gather_facts for ansible_hostname etc.
+  # Required collections for some modules used below
+  collections:
+    - community.windows
+    - chocolatey.chocolatey
+
+  vars:
+    ad_domain: "adlab.local"
+    admin_password: "LabPass1" # Consider using Ansible Vault
+    dc_hostname: "DCLabLocal"
+    dc_ip_address: "192.168.10.100" # From PS Script - IMPORTANT: Verify this is correct DC IP
+    dc_ip_subnet: "192.168.10.0/24" # From PS Script - Reverse Zone Network ID
+    dns_forwarder_ip: "8.8.8.8" # From PS Script
+
+    # Config download/paths
+    config_zip_url: 'https://github.com/iknowjason/BlueTools/blob/main/configs-pc.zip?raw=true'
+    choco_progdata_lib: 'C:\ProgramData\chocolatey\lib'
+    config_zip_dest: '{{ choco_progdata_lib }}\configs.zip'
+    config_extract_dest: '{{ choco_progdata_lib }}\configs'
+    sysmon_config_file: '{{ config_extract_dest }}\configs-pc\sysmonconfig-export.xml'
+    winlogbeat_base_config_file: '{{ config_extract_dest }}\configs-pc\winlogbeat.yml'
+    winlogbeat_tools_dir: '{{ choco_progdata_lib }}\winlogbeat\tools'
+    winlogbeat_final_config_file: '{{ winlogbeat_tools_dir }}\winlogbeat.yml'
+    winlogbeat_install_script: '{{ winlogbeat_tools_dir }}\install-service-winlogbeat.ps1'
+    winlogbeat_ip_to_replace: "10.100.1.5" # From PS Script
+    winlogbeat_target_ip: "192.168.20.100" # From PS Script - Update if needed
+
+    # Kansa repo
+    kansa_repo_url: 'https://github.com/davehull/Kansa.git'
+    kansa_dest_path: 'C:\Users\Public\Kansa' # From PS Script
+
+  tasks:
+
+    # == Block 1: Rename DC & Restart ==
+    - name: Rename Domain Controller to {{ dc_hostname }}
+      ansible.windows.win_hostname:
+        name: "{{ dc_hostname }}"
+      register: hostname_result
+
+    - name: Reboot after hostname change if necessary
+      ansible.windows.win_reboot:
+        msg: "Rebooting after renaming DC to {{ dc_hostname }}."
+        pre_reboot_delay: 10
+        post_reboot_delay: 60 # Increased delay from PS script
+        reboot_timeout: 600
+      when: hostname_result.reboot_required
+
+    - name: Wait for connectivity after potential hostname reboot
+      ansible.builtin.wait_for_connection:
+        delay: 30 # Wait a bit longer after reboot task reports completion
+        timeout: 400
+      when: hostname_result.reboot_required
+
+    - name: Confirm connectivity after potential hostname reboot
+      ansible.windows.win_ping:
+
+    # == Block 2: Install AD DS & DNS Features ==
+    - name: Install AD DS and DNS features (includes ADWS dependency)
+      ansible.windows.win_feature:
+        name:
+          - AD-Domain-Services
+          - DNS
+        include_management_tools: yes
+        state: present
+      register: feature_install
+
+    # Optional reboot if feature install requires it (uncommon for just adding roles)
+    - name: Reboot if required by ADDS/DNS Feature Install
+      ansible.windows.win_reboot:
+        msg: "Rebooting after feature installation."
+      when: feature_install.reboot_required
+
+    - name: Wait for connectivity after potential feature install reboot
+      ansible.builtin.wait_for_connection:
+        delay: 30
+        timeout: 400
+      when: feature_install.reboot_required
+
+    # == Block 3: Setup DNS Server & AD Forest ==
+    # NOTE: Ensure the server is in a WORKGROUP before this step
+    - name: Create AD Forest '{{ ad_domain }}' (includes DNS install/config)
+      ansible.windows.win_shell: |
+        Import-Module ADDSDeployment -ErrorAction Stop;
+        Install-ADDSForest -DomainName "{{ ad_domain }}" -SafeModeAdministratorPassword (ConvertTo-SecureString "{{ admin_password }}" -AsPlainText -Force) -InstallDns -Force -ErrorAction Stop;
+      args:
+        executable: powershell.exe
+      register: forest_install
+      # No ignore_errors
+
+    # Wait for the automatic reboot triggered by Install-ADDSForest
+    - name: Wait for DC reboot and stabilization after AD Forest install
+      ansible.builtin.wait_for_connection:
+        delay: 60 # Longer delay after promotion reboot
+        timeout: 900 # Longer timeout
+
+    # Configure DNS Client on DC itself (post-reboot)
+    - name: Set DC's DNS client server address to localhost
+      ansible.windows.win_dns_client:
+        adapter_names: '*' # Apply to all unless specific needed
+        dns_servers:
+          - "127.0.0.1"
+
+    # Configure DNS Server settings
+    - name: Add DNS Reverse Lookup Zone {{ dc_ip_subnet }}
+      community.windows.win_dns_zone:
+        name: "{{ dc_ip_address.split('.')[2] }}.{{ dc_ip_address.split('.')[1] }}.{{ dc_ip_address.split('.')[0] }}.in-addr.arpa" # Auto-construct name
+        replication_scope: Forest # Or Domain
+        zone_type: Primary
+        state: present
+        dynamic_update: Secure # Recommended for AD zones
+
+    - name: Add DNS Forwarder {{ dns_forwarder_ip }}
+      community.windows.win_dns_forwarder:
+        ip_addresses:
+          - "{{ dns_forwarder_ip }}"
+        state: present
+
+    # Encourage SRV registration
+    - name: Force DNS registration on DC after setting DNS client
+      ansible.windows.win_shell: ipconfig /registerdns
+      args:
+        executable: cmd.exe
+      changed_when: false
+
+    - name: Restart Netlogon service to accelerate SRV registration
+      ansible.windows.win_service:
+        name: Netlogon
+        state: restarted
+
+    - name: Wait briefly for services/DNS registration after Netlogon restart
+      ansible.builtin.pause:
+        seconds: 45 # Slightly longer pause
+
+    # Verify AD/ADWS readiness
+    - name: Wait until AD domain is generally available via Get-ADDomain
+      ansible.windows.win_shell: |
+        # Script from previous answer to check Get-ADDomain in loop
+        $attempt = 0; $maxAttempts = 30;
+        while ($attempt -lt $maxAttempts) {
+          try { $domain = Get-ADDomain -ErrorAction Stop; if ($domain) { Write-Host "AD Domain '{{ ad_domain }}' detected."; exit 0 } }
+          catch { Write-Warning "Attempt $($attempt + 1)/$maxAttempts: Get-ADDomain failed (Error: $($_.Exception.Message)). Waiting 10 seconds..."; Start-Sleep -Seconds 10; $attempt++; }
+        }
+        Write-Error "AD Domain '{{ ad_domain }}' did not become available via Get-ADDomain after $maxAttempts attempts."; exit 1
+      args:
+        executable: powershell.exe
+      register: ad_domain_check
+      failed_when: ad_domain_check.rc != 0
+      changed_when: false
+
+    - name: Ensure Active Directory Web Services (ADWS) service is running
+      ansible.windows.win_service:
+        name: ADWS
+        state: started
+        start_mode: auto
+
+    - name: Wait for ADWS port (TCP 9389) to be listening locally
+      ansible.windows.win_wait_for:
+        port: 9389
+        host: 127.0.0.1
+        state: started
+        timeout: 180
+        sleep: 10
+
+    # == Block 4: Installing Different Useful Tools ==
+    - name: Adding Users to AD (Idempotent Check)
+      ansible.windows.win_shell: |
+        # Script block from previous answer with Get-ADUser/Get-ADGroupMember checks
+        Start-Sleep -Seconds 5
+        Import-Module ActiveDirectory -ErrorAction Stop
+        $passwordSecure = ConvertTo-SecureString '{{ admin_password }}' -AsPlainText -Force
+        if (-not (Get-ADUser -Filter {SamAccountName -eq 'kbaehr'} -ErrorAction SilentlyContinue)) { New-ADUser -Name 'Kimberly Baehr' -GivenName 'Kimberly' -Surname 'Baehr' -SamAccountName 'kbaehr' -AccountPassword $passwordSecure -Enabled $true -PasswordNeverExpires $true; Write-Host "Created: kbaehr" } else { Write-Host "Exists: kbaehr" }
+        if (-not (Get-ADUser -Filter {SamAccountName -eq 'slooney'} -ErrorAction SilentlyContinue)) { New-ADUser -Name 'Sarah Looney' -GivenName 'Sarah' -Surname 'Looney' -SamAccountName 'slooney' -AccountPassword $passwordSecure -Enabled $true -PasswordNeverExpires $true; Write-Host "Created: slooney" } else { Write-Host "Exists: slooney" }
+        if (-not (Get-ADUser -Filter {SamAccountName -eq 'ddean'} -ErrorAction SilentlyContinue)) { New-ADUser -Name 'David Dean' -GivenName 'David' -Surname 'Dean' -SamAccountName 'ddean' -AccountPassword $passwordSecure -Enabled $true -PasswordNeverExpires $true; Write-Host "Created: ddean" } else { Write-Host "Exists: ddean" }
+        $group = 'Domain Admins'; $user = 'ddean'; $member = Get-ADGroupMember -Identity $group -ErrorAction SilentlyContinue | Where-Object { $_.SamAccountName -eq $user }; if (-not $member) { Add-ADGroupMember -Identity $group -Members $user -Confirm:$false; Write-Host "Added: $user to $group" } else { Write-Host "Member: $user already in $group" }
+      args:
+        executable: powershell.exe
+      register: add_users_result
+      changed_when: "'Created:' in add_users_result.stdout or 'Added:' in add_users_result.stdout"
+
+    - name: Group Policy - Disable Windows Defender (Idempotent Check)
+      ansible.windows.win_shell: |
+        # Script block from previous answer with Get-GPO/Get-GPLink checks
+        Import-Module GroupPolicy -ErrorAction Stop; $gpoName = 'Disable Windows Defender'; $gpoExists = $false; $linkExists = $false
+        if (-not (Get-GPO -Name $gpoName -ErrorAction SilentlyContinue)) { New-GPO -Name $gpoName -Comment 'Disables Windows Defender'; Write-Host "Created GPO: $gpoName" } else { $gpoExists = $true; Write-Host "Exists GPO: $gpoName" }
+        Set-GPRegistryValue -Name $gpoName -Key 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender' -ValueName 'DisableAntiSpyware' -Type DWord -Value 1 -ErrorAction SilentlyContinue;
+        Set-GPRegistryValue -Name $gpoName -Key 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' -ValueName 'DisableRealtimeMonitoring' -Type DWord -Value 1 -ErrorAction SilentlyContinue;
+        $domainDN = (Get-ADDomain).DistinguishedName; if (-not (Get-GPLink -Target $domainDN -Name $gpoName -ErrorAction SilentlyContinue)) { New-GPLink -Name $gpoName -Target $domainDN; Write-Host "Linked GPO: $gpoName to $domainDN" } else { $linkExists = $true; Write-Host "Link Exists: $gpoName to $domainDN" }
+      args:
+        executable: powershell.exe
+      register: gpo_result
+      changed_when: "'Created GPO:' in gpo_result.stdout or 'Linked GPO:' in gpo_result.stdout"
+
+    - name: Add Shares - Ensure directory C:\Share exists
+      ansible.windows.win_file:
+        path: 'C:\Share'
+        state: directory
+
+    - name: Add Shares - Create SMB share 'Share'
+      ansible.windows.win_share:
+        name: "Share"
+        path: 'C:\Share'
+        read_access: Everyone # WARNING: Consider more restrictive permissions
+        full_access: Administrators
+        state: present
+
+    - name: Install Chocolatey bootstrap
+      ansible.windows.win_package:
+        name: chocolatey
+        state: present
+        source: https://community.chocolatey.org/install.ps1
+
+    - name: Install Choco Packages (Chrome, Sysmon, Winlogbeat, Wireshark, Git)
+      chocolatey.chocolatey.win_chocolatey:
+        name:
+          - googlechrome # Note: --ignore-checksums not standard option here
+          - sysmon
+          - winlogbeat
+          - wireshark
+          - git
+        state: present
+
+    - name: Download Sysmon/Winlogbeat Config Zip
+      ansible.windows.win_get_url:
+        url: "{{ config_zip_url }}"
+        dest: "{{ config_zip_dest }}"
+
+    - name: Expand Sysmon/Winlogbeat Config Zip
+      community.windows.win_unzip:
+        src: "{{ config_zip_dest }}"
+        dest: "{{ config_extract_dest }}"
+        delete_archive: yes # Clean up zip file after extraction
+
+    - name: Apply Sysmon Configuration
+      ansible.windows.win_shell: |
+        $sysmonExe = Get-Command sysmon.exe -ErrorAction SilentlyContinue # Find sysmon path reliably
+        if (-not $sysmonExe) { $sysmonExe = Get-Command sysmon64.exe -ErrorAction SilentlyContinue } # Try 64bit name
+        if (-not $sysmonExe) { $sysmonExe = Join-Path $env:ProgramData 'chocolatey\lib\sysmon\tools\sysmon64.exe' } # Fallback path
+
+        $configFile = '{{ sysmon_config_file }}'
+
+        if (Test-Path $sysmonExe.Source -PathType Leaf) {
+          if (Test-Path $configFile -PathType Leaf) {
+            Write-Host "Applying Sysmon config from $configFile using $($sysmonExe.Source)"
+            & $sysmonExe.Source -accepteula -i $configFile
+            # Check exit code? Sysmon might return non-zero on success sometimes
+          } else { Write-Error "Sysmon config file not found: $configFile"; exit 1 }
+        } else { Write-Error "Sysmon executable not found ($($sysmonExe.Source))"; exit 1 }
+      args:
+        executable: powershell.exe
+      register: sysmon_apply_result
+      failed_when: sysmon_apply_result.rc != 0 # Be aware sysmon exit codes can be tricky
+      changed_when: "'Configuration updated' in sysmon_apply_result.stdout" # Or similar success message
+
+    - name: Modify Winlogbeat Configuration File (Replace IP)
+      ansible.windows.win_lineinfile:
+        path: "{{ winlogbeat_base_config_file }}" # Modify the extracted config
+        regexp: '^{{ winlogbeat_ip_to_replace | regex_escape() }}$' # Match exact line if possible, or adjust regex
+        line: '    hosts: ["{{ winlogbeat_target_ip }}:5044"]' # Example replacement, adjust as needed based on actual file content
+        backrefs: yes # Needed for regexp replace typically, but check module docs if replacing whole line
+        # Alternatively use win_template if more complex changes needed
+
+    - name: Copy Modified Winlogbeat Config to Tools Directory
+      ansible.windows.win_copy:
+        src: "{{ winlogbeat_base_config_file }}"
+        dest: "{{ winlogbeat_final_config_file }}"
+        remote_src: yes # Indicate source is on the remote machine
+
+    - name: Run Winlogbeat Service Install Script
+      ansible.windows.win_shell: |
+        if (Test-Path -Path '{{ winlogbeat_install_script }}' -PathType Leaf) {
+          & '{{ winlogbeat_install_script }}'
+        } else {
+          Write-Error "Winlogbeat install script not found at {{ winlogbeat_install_script }}"
+          exit 1
+        }
+      args:
+        executable: powershell.exe
+      register: winlogbeat_install_script_result
+      failed_when: winlogbeat_install_script_result.rc != 0
+      # This script might report changes, or might need specific output check
+      changed_when: "'installed successfully' in winlogbeat_install_script_result.stdout" # Example
+
+    - name: Install NuGet Package Provider (Prereq for PS Modules)
+      ansible.windows.win_psmodule:
+        name: NuGet
+        state: present
+        minimum_version: '2.8.5.201' # From PS Script
+
+    - name: Install powershell-yaml Module (Prereq for ART?)
+      ansible.windows.win_psmodule:
+        name: powershell-yaml
+        state: present
+
+    - name: Install Atomic Red Team
+      ansible.windows.win_shell: |
+        $ProgressPreference = 'SilentlyContinue';
+        try {
+          # Download install script content
+          $installScriptContent = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1')
+          # Execute in memory
+          Invoke-Expression -Command $installScriptContent -ErrorAction Stop
+          # Run installer function
+          Install-AtomicRedTeam -getAtomics -Force -ErrorAction Stop;
+          Write-Host "Atomic Red Team installation successful."
+        } catch {
+          Write-Error "Atomic Red Team installation failed: $($_.Exception.Message)"
+          exit 1
+        }
+      args:
+        executable: powershell.exe
+      register: art_install_result
+      failed_when: art_install_result.rc != 0
+      changed_when: "'Atomic Red Team installation successful.' in art_install_result.stdout" # Look for success message
+
+    # Skipping the explicit Set-ExecutionPolicy as WinRM usually handles this scope
+
+    # Optional: Reboot after significant installations/configurations if desired
+    # - name: Reboot after tool installations
+    #   ansible.windows.win_reboot:
+    #     msg: "Rebooting after tool installations and configurations."
+    #
+    # - name: Wait for connectivity after tool install reboot
+    #   ansible.builtin.wait_for_connection:
+    #     delay: 30
+    #     timeout: 400
+
+    # == Block 5: Finishing Configuration ==
+    - name: Ensure winlogbeat service is started
+      ansible.windows.win_service:
+        name: winlogbeat
+        state: started
+        start_mode: auto # Ensure it starts automatically
+
+    - name: Clone Kansa Repository
+      ansible.windows.win_git:
+        repo: "{{ kansa_repo_url }}"
+        dest: "{{ kansa_dest_path }}"
+        version: main # Or specific branch/tag
+      # Assumes git was successfully installed via Chocolatey

@@ -1,0 +1,180 @@
+---
+- name: Configure Domain Controller
+  hosts: domain_controllers
+  gather_facts: yes
+  vars:
+    ad_domain: 'adlab.local'
+    admin_password: 'LabPass1'
+    domain_ip: '172.16.10.100'
+  tasks:
+
+    - name: Rename Domain Controller to DCLabLocal
+      ansible.windows.win_hostname:
+        name: 'DCLabLocal'
+
+    - name: Reboot after hostname change if necessary
+      ansible.windows.win_reboot:
+        msg: 'Rebooting after renaming DC.'
+        pre_reboot_delay: 10
+        post_reboot_delay: 20
+        reboot_timeout: 300
+      when: ansible_hostname != 'DCLabLocal'
+
+    - name: Pause for connectivity after reboot
+      pause:
+        seconds: 20
+
+    - name: Confirm connectivity after reboot
+      ansible.windows.win_ping:
+ 
+    - name: Disable IPv6 via registry
+      win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters
+        name: DisabledComponents
+        data: 0xFFFFFFFF
+        type: dword
+        state: present
+
+    - name: Reboot for IPv6 change to take effect
+      win_reboot:
+        reboot_timeout: 600
+
+    - name: Install AD DS and DNS features
+      ansible.windows.win_feature:
+        name:
+          - AD-Domain-Services
+          - DNS
+        include_management_tools: yes
+        state: present
+
+    - name: Set DNS server address to DC IP (172.16.10.100)
+      ansible.windows.win_shell: |
+        $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '172.16.10.100'
+      args:
+        executable: powershell.exe
+
+    - name: Create AD Forest and configure domain
+      ansible.windows.win_shell: |
+        Import-Module ADDSDeployment
+        Install-ADDSForest -DomainName '{{ ad_domain }}' -SafeModeAdministratorPassword (ConvertTo-SecureString '{{ admin_password }}' -AsPlainText -Force) -Force
+      args:
+        executable: powershell.exe
+      register: forest_install
+      ignore_errors: yes
+
+    - name: Reboot after AD forest installation if required
+      ansible.windows.win_reboot:
+        msg: 'Rebooting after AD forest installation.'
+        pre_reboot_delay: 10
+        post_reboot_delay: 20
+        reboot_timeout: 300
+      when: forest_install is changed
+
+    - name: Pause for connectivity after AD forest installation reboot
+      pause:
+        seconds: 20
+
+    - name: Wait until Active Directory domain is available
+      ansible.windows.win_shell: |
+        $attempt = 0
+        while ($attempt -lt 30) {
+          try {
+            $domain = Get-ADDomain
+            if ($domain) { exit 0 }
+          } catch {
+            Start-Sleep -Seconds 10
+            $attempt++
+          }
+        }
+        exit 1
+      args:
+        executable: powershell.exe
+      register: ad_ready
+      failed_when: ad_ready.rc != 0
+
+    - name: Confirm connectivity after AD is available
+      ansible.windows.win_ping:
+
+    - name: Add AD Users and set group memberships
+      ansible.windows.win_shell: |
+        Import-Module ActiveDirectory
+        New-ADUser -Name 'Kimberly Baehr' -GivenName 'Kimberly' -Surname 'Baehr' -SamAccountName 'kbaehr' -AccountPassword (ConvertTo-SecureString '{{ admin_password }}' -AsPlainText -Force) -Enabled $true -PasswordNeverExpires $true
+        New-ADUser -Name 'Sarah Looney' -GivenName 'Sarah' -Surname 'Looney' -SamAccountName 'slooney' -AccountPassword (ConvertTo-SecureString '{{ admin_password }}' -AsPlainText -Force) -Enabled $true -PasswordNeverExpires $true
+        New-ADUser -Name 'David Dean' -GivenName 'David' -Surname 'Dean' -SamAccountName 'ddean' -AccountPassword (ConvertTo-SecureString '{{ admin_password }}' -AsPlainText -Force) -Enabled $true -PasswordNeverExpires $true
+        Add-ADGroupMember -Identity 'Domain Admins' -Members 'ddean' -Confirm:$false
+      args:
+        executable: powershell.exe
+
+    - name: Disable Windows Defender via Group Policy
+      ansible.windows.win_shell: |
+        Import-Module GroupPolicy
+        New-GPO -Name 'Disable Windows Defender' -Comment 'Disables Windows Defender' -ErrorAction SilentlyContinue
+        Set-GPRegistryValue -Name 'Disable Windows Defender' -Key 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender' -ValueName 'DisableAntiSpyware' -Type DWord -Value 1 -ErrorAction SilentlyContinue
+        Set-GPRegistryValue -Name 'Disable Windows Defender' -Key 'HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' -ValueName 'DisableRealtimeMonitoring' -Type DWord -Value 1 -ErrorAction SilentlyContinue
+        New-GPLink -Name 'Disable Windows Defender' -Target ((Get-ADDomain).DistinguishedName) -ErrorAction SilentlyContinue
+      args:
+        executable: powershell.exe
+
+    - name: Ensure directory C:\Share exists
+      ansible.windows.win_file:
+        path: 'C:\Share'
+        state: directory
+
+    - name: Create SMB share 'Share'
+      ansible.windows.win_share:
+        name: 'Share'
+        path: 'C:\Share'
+        read_access: Everyone
+        full_access: Administrators
+        state: present
+
+    - name: Install Chocolatey
+      ansible.windows.win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        executable: powershell.exe
+
+    - name: Install Chocolatey packages
+      chocolatey.chocolatey.win_chocolatey:
+        name:
+          - googlechrome
+          - sysmon
+          - winlogbeat
+          - wireshark
+          - git
+        state: present
+
+    - name: Download BlueTools configs and apply Sysmon and Winlogbeat setup
+      ansible.windows.win_shell: |
+        $zipPath = 'C:\ProgramData\chocolatey\lib\configs.zip'
+        $destPath = 'C:\ProgramData\chocolatey\lib\configs'
+        (New-Object System.Net.WebClient).DownloadFile('https://github.com/iknowjason/BlueTools/blob/main/configs-pc.zip?raw=true', $zipPath)
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $destPath
+        C:\ProgramData\chocolatey\lib\Sysmon\tools\sysmon.exe -accepteula -i $destPath\configs-pc\sysmonconfig-export.xml
+        (Get-Content $destPath\configs-pc\winlogbeat.yml) -replace '10.100.1.5', '192.168.20.100' | Set-Content $destPath\configs-pc\winlogbeat.yml
+        Copy-Item "$destPath\configs-pc\winlogbeat.yml" -Destination 'C:\ProgramData\chocolatey\lib\winlogbeat\tools'
+        C:\ProgramData\chocolatey\lib\winlogbeat\tools\install-service-winlogbeat.ps1
+      args:
+        executable: powershell.exe
+
+    - name: Install Atomic Red Team
+      ansible.windows.win_shell: |
+        IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1')
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+        Install-Module powershell-yaml -Force
+        Install-AtomicRedTeam -getAtomics -Force
+        try {
+          Set-ExecutionPolicy Bypass -Force
+        } catch {
+          Write-Host 'ExecutionPolicy change failed, probably due to GPO override.'
+        }
+      args:
+        executable: powershell.exe
+
+    - name: Start winlogbeat service
+      ansible.windows.win_service:
+        name: winlogbeat
+        state: started

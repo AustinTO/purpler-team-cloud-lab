@@ -1,9 +1,10 @@
 variable "env" {
-    type = string
-    default = "dev"
+  type    = string
+  default = "dev"
 }
 
 variable "cidr_prefix" {
-    type = string
-    default = "172.16"
+  type    = string
+  default = "172.16"
 }
+

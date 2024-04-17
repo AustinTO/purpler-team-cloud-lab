@@ -1,0 +1,103 @@
+---
+- name: Configure Workstation and Join Domain
+  hosts: workstations
+  gather_facts: yes
+  vars:
+    ad_domain: 'adlab.local'
+    domain_join_user: 'Administrator@adlab.local'
+    domain_join_password: 'LabPass1'
+    new_hostname: 'KBAEHR-WORKSTAT'
+    dc_ip: '172.16.10.100'
+  tasks:
+
+    - name: Rename Workstation
+      ansible.windows.win_hostname:
+        name: '{{ new_hostname }}'
+
+    - name: Set DNS server on Workstation to the Domain Controller IP
+      ansible.windows.win_dns_client:
+        adapter_names: ['Ethernet']
+        dns_servers:
+          - '{{ dc_ip }}'
+
+    - name: Reboot after hostname change and DNS update
+      ansible.windows.win_reboot:
+        msg: 'Rebooting workstation after renaming and DNS update'
+        pre_reboot_delay: 10
+        post_reboot_delay: 60
+        reboot_timeout: 600
+ 
+    - name: Disable IPv6 via registry
+      win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters
+        name: DisabledComponents
+        data: 0xFFFFFFFF
+        type: dword
+        state: present
+
+    - name: Reboot for IPv6 change to take effect
+      win_reboot:
+        reboot_timeout: 600
+
+    - name: Join Workstation to Domain
+      microsoft.ad.membership:
+        dns_domain_name: '{{ ad_domain }}'
+        domain_admin_user: '{{ domain_join_user }}'
+        domain_admin_password: '{{ domain_join_password }}'
+        state: domain
+
+    - name: Add domain user as local admin and Remote Desktop user
+      ansible.windows.win_shell: |
+        net localgroup 'Administrators' /add 'adlab\kbaehr'
+        net localgroup 'Remote Desktop Users' /add 'adlab\kbaehr'
+        Install-Module -Name 'Carbon' -AllowClobber -Force
+        Import-Module 'Carbon'
+        Grant-Privilege -Identity 'adlab\kbaehr' -Privilege SeRemoteInteractiveLogonRight
+      args:
+        executable: powershell.exe
+
+    - name: Install Chocolatey
+      ansible.windows.win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        executable: powershell.exe
+
+    - name: Install Chocolatey packages (Workstation)
+      chocolatey.chocolatey.win_chocolatey:
+        name:
+          - googlechrome
+          - vscode
+          - sysmon
+          - winlogbeat
+          - wireshark
+        state: present
+
+    - name: Download BlueTools configs and apply Sysmon and Winlogbeat setup
+      ansible.windows.win_shell: |
+        $zipPath = 'C:\ProgramData\chocolatey\lib\configs.zip'
+        $destPath = 'C:\ProgramData\chocolatey\lib\configs'
+        (New-Object System.Net.WebClient).DownloadFile('https://github.com/iknowjason/BlueTools/blob/main/configs-pc.zip?raw=true', $zipPath)
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $destPath
+        C:\ProgramData\chocolatey\lib\Sysmon\tools\sysmon.exe -accepteula -i $destPath\configs-pc\sysmonconfig-export.xml
+        (Get-Content $destPath\configs-pc\winlogbeat.yml) -replace '10.100.1.5', '192.168.20.100' | Set-Content $destPath\configs-pc\winlogbeat.yml
+        Copy-Item "$destPath\configs-pc\winlogbeat.yml" -Destination 'C:\ProgramData\chocolatey\lib\winlogbeat\tools'
+        C:\ProgramData\chocolatey\lib\winlogbeat\tools\install-service-winlogbeat.ps1
+      args:
+        executable: powershell.exe
+
+    - name: Install Atomic Red Team
+      ansible.windows.win_shell: |
+        IEX (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/redcanaryco/invoke-atomicredteam/master/install-atomicredteam.ps1')
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+        Install-Module powershell-yaml -Force
+        Install-AtomicRedTeam -getAtomics -Force
+        Set-ExecutionPolicy Bypass -Force
+      args:
+        executable: powershell.exe
+
+    - name: Start winlogbeat service
+      ansible.windows.win_service:
+        name: winlogbeat
+        state: started

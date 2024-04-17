@@ -1,50 +1,62 @@
 variable "env" {
-    type = string
-    default = "dev"
+  type    = string
+  default = "dev"
 }
 
 variable "subnet_cidr_prefix" {
-    type = string
-    default = "192.168.10"
+  description = "Default subnet CIDR prefix for the DC/Win instance"
+  type        = string
+  default     = "172.16.10"
 }
 
 variable "blueteam_subnet_cidr_prefix" {
-    type = string
-    default = "192.168.20"
+  description = "Default subnet CIDR prefix for the Blue Team machine"
+  type        = string
+  default     = "172.16.20"
 }
 
 variable "attacker_subnet_cidr_prefix" {
-    type = string
-    default = "192.168.30"
+  description = "Default subnet CIDR prefix for the Red Team machine"
+  type        = string
+  default     = "172.16.30"
 }
 
 variable "vpc_id" {
-    type = string
+  type = string
 }
 
 variable "subnet_id" {
-    type = string
+  type = string
 }
 
 variable "blueteam_subnet_id" {
-    type = string
+  type = string
 }
 
 variable "attacker_subnet_id" {
-    type = string
+  type = string
 }
 
 variable "default_password" {
-    type = string
-    default = "LabPass1"
+  description = "The Administrator password for Windows instances"
+  type        = string
+  default     = "LabPass1"
 }
 
 variable "adlab_domain" {
-    type = string
-    default = "adlab.local"
+  description = "The Active Directory domain name"
+  type        = string
+  default     = "adlab.local"
 }
 
 variable "key_name" {
-    type = string
-    default = "ec2_key_pair"
+  description = "The name of the AWS EC2 key pair"
+  type        = string
+  default     = "ec2_key_pair"
+}
+
+variable "external_whitelist_ip" {
+  description = "The IP address (in CIDR notation) to whitelist for external connections (WinRM, RDP, SSH, etc.)"
+  type        = string
+  default     = "0.0.0.0/0"
 }
