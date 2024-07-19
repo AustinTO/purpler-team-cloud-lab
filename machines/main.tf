@@ -33,7 +33,14 @@ resource "aws_security_group" "adlab-ingress-all" {
     protocol    = "tcp"
     cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
   }
-  
+  # LDAP / DC Locator (UDP 389)
+  ingress {
+    from_port   = 389
+    to_port     = 389
+    protocol    = "udp"
+    cidr_blocks = ["${var.subnet_cidr_prefix}.0/24"]
+  }  
+
   # SMB & Net Logon (TCP 445)
   ingress {
     from_port   = 445
@@ -260,7 +267,7 @@ resource "aws_instance" "adlab-dc" {
   security_groups              = [aws_security_group.adlab-ingress-all.id]
   subnet_id                    = var.subnet_id
   associate_public_ip_address  = true
-  private_ip                   = "172.16.10.100"
+  private_ip                   = "192.168.10.100"
 user_data = <<EOF
 <powershell>
 # Disable EC2Launch so it doesn't override settings
@@ -314,7 +321,7 @@ resource "aws_instance" "adlab-win10" {
   security_groups              = [aws_security_group.adlab-ingress-all.id]
   subnet_id                    = var.subnet_id
   associate_public_ip_address  = true
-  private_ip                   = "172.16.10.110"
+  private_ip                   = "192.168.10.110"
   user_data = <<EOF
 <powershell>
 # Disable EC2Launch so it doesn't override settings
@@ -369,7 +376,7 @@ resource "aws_instance" "blueteam-helk" {
   security_groups              = [aws_security_group.blueteam-ingress-all.id]
   subnet_id                    = var.blueteam_subnet_id
   associate_public_ip_address  = true
-  private_ip                   = "172.16.20.100"
+  private_ip                   = "192.168.20.100"
   user_data                    = file("${path.module}/blueteam-machine-config.yml")
   root_block_device {
     delete_on_termination = true
@@ -396,7 +403,7 @@ resource "aws_instance" "redteam-caldera" {
   security_groups              = [aws_security_group.redteam-ingress-all.id]
   subnet_id                    = var.attacker_subnet_id
   associate_public_ip_address  = true
-  private_ip                   = "172.16.30.100"
+  private_ip                   = "192.168.30.100"
   user_data                    = file("${path.module}/redteam-machine-config.yml")
   root_block_device {
     delete_on_termination = true

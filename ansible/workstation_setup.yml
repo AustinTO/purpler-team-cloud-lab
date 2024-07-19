@@ -4,10 +4,10 @@
   gather_facts: yes
   vars:
     ad_domain: 'adlab.local'
-    domain_join_user: 'Administrator@adlab.local'
+    domain_join_user: 'ddean@adlab.local'
     domain_join_password: 'LabPass1'
     new_hostname: 'KBAEHR-WORKSTAT'
-    dc_ip: '172.16.10.100'
+    dc_ip: '192.168.10.100'
   tasks:
 
     - name: Rename Workstation
@@ -39,17 +39,28 @@
       win_reboot:
         reboot_timeout: 600
 
+    - name: Confirm DC DNS resolution is working
+      win_shell: |
+        Resolve-DnsName adlab.local
+      register: dns_check
+
+    - name: Show DNS resolution result
+      debug:
+        var: dns_check.stdout_lines
+
     - name: Join Workstation to Domain
       microsoft.ad.membership:
         dns_domain_name: '{{ ad_domain }}'
         domain_admin_user: '{{ domain_join_user }}'
         domain_admin_password: '{{ domain_join_password }}'
         state: domain
+      ignore_errors: true
 
     - name: Add domain user as local admin and Remote Desktop user
       ansible.windows.win_shell: |
         net localgroup 'Administrators' /add 'adlab\kbaehr'
         net localgroup 'Remote Desktop Users' /add 'adlab\kbaehr'
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
         Install-Module -Name 'Carbon' -AllowClobber -Force
         Import-Module 'Carbon'
         Grant-Privilege -Identity 'adlab\kbaehr' -Privilege SeRemoteInteractiveLogonRight
@@ -93,7 +104,11 @@
         Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
         Install-Module powershell-yaml -Force
         Install-AtomicRedTeam -getAtomics -Force
-        Set-ExecutionPolicy Bypass -Force
+        try {
+          Set-ExecutionPolicy Bypass -Force
+        } catch {
+          Write-Host 'ExecutionPolicy change failed, probably due to GPO override.'
+        }
       args:
         executable: powershell.exe
 

@@ -45,21 +45,32 @@ Recent improvements include:
    git clone https://github.com//purpler-team-cloud-lab.git
    cd purpler-team-cloud-lab
    ```
+To whitelist IP addresses that are allowed to connect to VMs edit: machines/variables.tf
+   '''bash
+     variable "external_whitelist_ip" {
+      description = "The IP address (in CIDR notation) to whitelist for external connections (WinRM, RDP, SSH, etc.)"
+      type        = string
+      default     = "0.0.0.0/0" #***Leave this as is to allow any external connections***
+     }
+   '''
 6. Initialize and apply Terraform:
    ```bash
    terraform init
    terraform apply
    ```
    Type `yes` to begin provisioning. It will take ~40 minutes.
-7. After terraform provisioning run ./generate_inventory.sh to populate the inventory file for ansible.
-Run ansible-playbook -i inventory.ini ansible/dc_setup.yml wait for the playbook to finish
-then run ansible-playbook -i inventory.ini ansible/workstation_setup.yml
-
-8. Enjoy!
-To destroy the lab:
-```bash
-terraform destroy
-'''
+7. After terraform provisioning run 
+	'''bash
+	chmod +x generate_inventory.sh
+	./generate_inventory.sh
+	 ansible-playbook -i inventory.ini ansible/dc_setup.yml
+	 ansible-playbook -i inventory.ini ansible/workstation_setup.yml
+	'''
+8. To destroy the lab:
+    ```bash
+    terraform destroy
+    '''
+9. Enjoy!
 ## Credentials
 - **Windows Local Admin**: Administrator / LabPass1
 - **Domain Admin**: adlab\ddean / LabPass1

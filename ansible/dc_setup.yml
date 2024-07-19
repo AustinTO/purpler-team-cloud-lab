@@ -5,7 +5,7 @@
   vars:
     ad_domain: 'adlab.local'
     admin_password: 'LabPass1'
-    domain_ip: '172.16.10.100'
+    domain_ip: '192.168.10.100'
   tasks:
 
     - name: Rename Domain Controller to DCLabLocal
@@ -47,10 +47,10 @@
         include_management_tools: yes
         state: present
 
-    - name: Set DNS server address to DC IP (172.16.10.100)
+    - name: Set DNS server address to DC IP (192.168.10.100)
       ansible.windows.win_shell: |
         $adapter = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | Select-Object -First 1
-        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '172.16.10.100'
+        Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '192.168.10.100'
       args:
         executable: powershell.exe
 

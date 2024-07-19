@@ -6,19 +6,19 @@ variable "env" {
 variable "subnet_cidr_prefix" {
   description = "Default subnet CIDR prefix for the DC/Win instance"
   type        = string
-  default     = "172.16.10"
+  default     = "192.168.10"
 }
 
 variable "blueteam_subnet_cidr_prefix" {
   description = "Default subnet CIDR prefix for the Blue Team machine"
   type        = string
-  default     = "172.16.20"
+  default     = "192.168.20"
 }
 
 variable "attacker_subnet_cidr_prefix" {
   description = "Default subnet CIDR prefix for the Red Team machine"
   type        = string
-  default     = "172.16.30"
+  default     = "192.168.30"
 }
 
 variable "vpc_id" {

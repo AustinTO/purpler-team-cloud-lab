@@ -14,7 +14,8 @@ provider "aws" {
 module "adlab_network" {
   source      = "./networks"
   env         = "lab"
-  cidr_prefix = "172.16"   # Using the original default from networks/variables.tf
+#  cidr_prefix = "172.16"   # Using the original default from networks/variables.tf
+   cidr_prefix = "192.168"
 }
 
 module "AD" {
