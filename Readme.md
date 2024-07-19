@@ -46,7 +46,7 @@ Recent improvements include:
    cd purpler-team-cloud-lab
    ```
 To whitelist IP addresses that are allowed to connect to VMs edit: machines/variables.tf
-     ```bash
+     ```
      variable "external_whitelist_ip" {
       description = "The IP address (in CIDR notation) to whitelist for external connections (WinRM, RDP, SSH, etc.)"
       type        = string
