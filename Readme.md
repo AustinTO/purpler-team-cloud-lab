@@ -1,7 +1,7 @@
 # Overview
 Purpler Team Cloud Lab is a cloud-based AD lab created to help you test real attacks in a controlled environment and create detection rules for them. It was originally created for MalTrak training: "In-depth Investigation & Threat Hunting" and now we decided to make it open-source and available for everyone.
 
-This lab is built on AWS and includes an Active Directory domain consisting of a Domain Controller (DC) and a workstation, both running Windows Server 2019 and Windows 10 with Sysmon and Winlogbeat installed. Logs are shipped to the Blue Team network, which runs Threat Hunting ELK (HELK) to monitor domain activity, support investigations, and help create detection rules.
+This lab is built on AWS and includes an Active Directory domain consisting of a Domain Controller (DC) and a workstation, both running Windows Server 2019 with Sysmon and Winlogbeat installed. Logs are shipped to the Blue Team network, which runs Threat Hunting ELK (HELK) to monitor domain activity, support investigations, and help create detection rules.
 
 The Red Team network includes Caldera for automated adversary simulation, but also supports Atomic Red Team, now deployed on both domain machines, for manual execution of specific MITRE ATT&CK techniques.
 
@@ -46,7 +46,7 @@ Recent improvements include:
    cd purpler-team-cloud-lab
    ```
 To whitelist IP addresses that are allowed to connect to VMs edit: machines/variables.tf
-     ```
+     ```bash
      variable "external_whitelist_ip" {
       description = "The IP address (in CIDR notation) to whitelist for external connections (WinRM, RDP, SSH, etc.)"
       type        = string
@@ -60,16 +60,16 @@ To whitelist IP addresses that are allowed to connect to VMs edit: machines/vari
    ```
    Type `yes` to begin provisioning. It will take ~40 minutes.
 7. After terraform provisioning run 
-	'''bash
+	```bash
 	chmod +x generate_inventory.sh
 	./generate_inventory.sh
 	 ansible-playbook -i inventory.ini ansible/dc_setup.yml
 	 ansible-playbook -i inventory.ini ansible/workstation_setup.yml
-	'''
+	```
 8. To destroy the lab:
     ```bash
     terraform destroy
-    '''
+    ```
 9. Enjoy!
 ## Credentials
 - **Windows Local Admin**: Administrator / LabPass1
