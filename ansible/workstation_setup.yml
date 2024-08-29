@@ -35,10 +35,6 @@
         type: dword
         state: present
 
-    - name: Reboot for IPv6 change to take effect
-      win_reboot:
-        reboot_timeout: 600
-
     - name: Confirm DC DNS resolution is working
       win_shell: |
         Resolve-DnsName adlab.local
