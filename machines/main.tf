@@ -270,7 +270,7 @@ resource "aws_instance" "adlab-dc" {
   private_ip                   = "192.168.10.100"
 user_data = <<EOF
 <powershell>
-# Disable EC2Launch so it doesn't override settings
+# Disable EC2Launch so it doesn't override settings. This was needed to fix lab due to AWS changes.
 Stop-Service -Name EC2Launch -Force
 Set-Service -Name EC2Launch -StartupType Disabled
 
