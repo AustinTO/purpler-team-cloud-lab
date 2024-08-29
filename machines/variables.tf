@@ -54,7 +54,7 @@ variable "key_name" {
   type        = string
   default     = "ec2_key_pair"
 }
-
+#Change the below variable to add whitelisted IPs
 variable "external_whitelist_ip" {
   description = "The IP address (in CIDR notation) to whitelist for external connections (WinRM, RDP, SSH, etc.)"
   type        = string
