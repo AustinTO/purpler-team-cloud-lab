@@ -5,16 +5,14 @@
   gather_facts: no
   vars:
     techniques:
-      - T1059  # Command and Scripting Interpreter
+      - T1036  # Password Policy Discovery
       - T1027  # Obfuscated Files or Information
       - T1112  # Modify Registry
-      - T1003  # Credential Dumping
+      - T157.001  # Persistence Through Startup Folder
   tasks:
     - name: Import ART module and run tests
       win_shell: |
         Install-Module "C:\AtomicRedTeam\invoke-atomicredteam\Invoke-AtomicRedTeam.psd1" -Force
-    - name: Import ART module and run tests
-      win_shell: |
         Invoke-AtomicTest {{ item }}-GetPreqs -TestNumbers 1 -CheckPrereqs
       args:
         executable: powershell.exe
@@ -27,4 +25,4 @@
 
     - name: Reminder to analyze logs in HELK
       debug:
-        msg: "Check Kibana for logs from Sysmon and Winlogbeat related to the executed techniques."
+        msg: "Check HELK for correct logs."

@@ -26,6 +26,14 @@
         pre_reboot_delay: 10
         post_reboot_delay: 60
         reboot_timeout: 600
+
+    - name: Set unrestricted execution policy via registry
+      ansible.windows.win_regedit:
+        path: HKLM:\Software\Microsoft\PowerShell\1\ShellIds\Microsoft.PowerShell
+        name: ExecutionPolicy
+        data: Unrestricted
+        type: string
+        state: present
  
     - name: Disable IPv6 via registry
       win_regedit:
