@@ -51,14 +51,15 @@ Recent improvements include:
    terraform apply
    ```
    Type `yes` to begin provisioning. It will take ~40 minutes.
+7. After terraform provisioning run ./generate_inventory.sh to populate the inventory file for ansible.
+Run ansible-playbook -i inventory.ini ansible/dc_setup.yml wait for the playbook to finish
+then run ansible-playbook -i inventory.ini ansible/workstation_setup.yml
 
+8. Enjoy!
 To destroy the lab:
 ```bash
 terraform destroy
-After terraform provisioning run ./generate_inventory.sh to populate the inventory file for ansible.
-Run ansible-playbook -i inventory.ini -vvv ansible/dc_setup.yml wait for the playbook to finish
-then run ansible-playbook -i inventory.ini -vvv ansible/workstation_setup.yml
-
+'''
 ## Credentials
 - **Windows Local Admin**: Administrator / LabPass1
 - **Domain Admin**: adlab\ddean / LabPass1
