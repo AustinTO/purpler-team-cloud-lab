@@ -82,7 +82,7 @@
     - name: Install Chocolatey packages (Workstation)
       chocolatey.chocolatey.win_chocolatey:
         name:
-          - googlechrome
+         # - googlechrome # Commented out until chocolatey updated for to match new version.
           - vscode
           - sysmon
           - winlogbeat
@@ -120,3 +120,5 @@
       ansible.windows.win_service:
         name: winlogbeat
         state: started
+
+

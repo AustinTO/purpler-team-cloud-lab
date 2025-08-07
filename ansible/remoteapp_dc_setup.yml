@@ -1,0 +1,37 @@
+---
+- name: Configure Domain Controller
+  hosts: domain_controllers
+  gather_facts: yes
+  vars:
+    ad_domain: 'adlab.local'
+    admin_password: 'LabPass1'
+    domain_ip: '192.168.10.100'
+  tasks:
+
+   
+    # RemoteApp publishing
+
+    - name: Install RDS Session Host + subfeatures (Broker, Web Access) with management tools
+      ansible.windows.win_feature:
+        name: RDS-RD-Server
+        include_sub_features: yes
+        include_management_tools: yes
+        state: present
+
+
+
+    - name: Allow the broker FQDN in WSMan TrustedHosts so RD cmdlets can remote to it
+      ansible.windows.win_shell: |
+        $host = 'DCLabLocal.adlab.local'
+        $cur  = (Get-Item WSMan:\localhost\Client\TrustedHosts).Value -split ','
+        if ($cur -notcontains $host) {
+          $new = ($cur + $host) -join ','
+          Set-Item WSMan:\localhost\Client\TrustedHosts -Value $new -Force
+        }
+      args:
+        executable: powershell.exe
+
+
+
+
+

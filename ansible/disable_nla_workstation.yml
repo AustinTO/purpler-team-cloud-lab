@@ -1,0 +1,32 @@
+---
+- name: Configure Workstation and Join Domain
+  hosts: workstations
+  gather_facts: yes
+  vars:
+    ad_domain: 'adlab.local'
+    domain_join_user: 'ddean@adlab.local'
+    domain_join_password: 'LabPass1'
+    new_hostname: 'KBAEHR-WORKSTAT'
+    dc_ip: '192.168.10.100'
+  tasks:
+
+### Added to disable NLA and fix auth issue.        
+    - name: Disable NLA for RDP
+      win_regedit:
+        path: HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp
+        name: UserAuthentication
+        data: 0
+        type: dword
+
+    - name: Restart RD
+      win_service:
+        name: TermService
+        state: restarted
+        force_dependent_services: yes
+        
+    - name: Reboot again
+      ansible.windows.win_reboot:
+        msg: 'Rebooting after rd NLA change'
+        pre_reboot_delay: 10
+        post_reboot_delay: 20
+        reboot_timeout: 300
